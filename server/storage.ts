@@ -12,11 +12,20 @@ import {
   raidSchedules, type RaidSchedule, type InsertRaidSchedule,
   coreMembers, type CoreMember, type InsertCoreMember,
   coreApplications, type CoreApplication, type InsertCoreApplication,
+  uploadSessions, type UploadSession,
   type HeatmapData,
   type DashboardStats,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, sql, and } from "drizzle-orm";
+
+export type UploadSessionStatus = {
+  uploaderId: string;
+  sessionId: string | null;
+  startedAt: Date | null;
+  processedCount: number;
+  lastCompletedAt: Date | null;
+};
 
 export interface IStorage {
   getPlayers(): Promise<Player[]>;
@@ -32,9 +41,18 @@ export interface IStorage {
   deactivatePlayersNotIn(activePlayers: { name: string; realm: string }[]): Promise<number>;
   deactivatePlayersByName(playerNames: { name: string; realm: string }[]): Promise<number>;
   markAllPlayersInactive(): Promise<number>;
-  startUploadSession(sessionId: string): Promise<void>;
-  clearUploadSession(): Promise<void>;
-  getCurrentUploadSession(): Promise<{ sessionId: string | null; startedAt: Date | null }>;
+  startUploadSession(uploaderId: string, sessionId: string): Promise<void>;
+  clearUploadSession(uploaderId: string): Promise<void>;
+  incrementUploadProcessedCount(uploaderId: string, count: number): Promise<void>;
+  getCurrentUploadSession(uploaderId: string): Promise<UploadSessionStatus>;
+  getUploadStatus(uploaderId?: string): Promise<{
+    processing: boolean;
+    processedCount: number;
+    startedAt: Date | null;
+    lastCompletedAt: Date | null;
+    uploaderId: string | null;
+    sessions: UploadSessionStatus[];
+  }>;
 
   getActivitySnapshots(): Promise<ActivitySnapshot[]>;
   createActivitySnapshot(snapshot: InsertActivitySnapshot): Promise<ActivitySnapshot>;
@@ -277,68 +295,115 @@ export class DatabaseStorage implements IStorage {
     return deactivatedCount;
   }
 
-  async startUploadSession(sessionId: string): Promise<void> {
-    const settings = await this.getGuildSettings();
-    if (settings) {
-      await db.update(guildSettings)
-        .set({ 
-          currentUploadSession: sessionId,
-          uploadSessionStartedAt: new Date(),
-          uploadSessionProcessedCount: 0
+  async startUploadSession(uploaderId: string, sessionId: string): Promise<void> {
+    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+
+    if (existing.length > 0) {
+      await db.update(uploadSessions)
+        .set({
+          sessionId,
+          startedAt: new Date(),
+          processedCount: 0,
         })
-        .where(eq(guildSettings.id, settings.id));
+        .where(eq(uploadSessions.uploaderId, uploaderId));
+    } else {
+      await db.insert(uploadSessions).values({
+        uploaderId,
+        sessionId,
+        startedAt: new Date(),
+        processedCount: 0,
+      });
     }
   }
 
-  async clearUploadSession(): Promise<void> {
-    const settings = await this.getGuildSettings();
-    if (settings) {
-      await db.update(guildSettings)
-        .set({ 
-          currentUploadSession: null,
-          uploadSessionStartedAt: null,
-          uploadSessionProcessedCount: 0,
-          lastUploadCompletedAt: new Date()
+  async clearUploadSession(uploaderId: string): Promise<void> {
+    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+
+    if (existing.length > 0) {
+      await db.update(uploadSessions)
+        .set({
+          sessionId: null,
+          startedAt: null,
+          processedCount: 0,
+          lastCompletedAt: new Date(),
         })
-        .where(eq(guildSettings.id, settings.id));
+        .where(eq(uploadSessions.uploaderId, uploaderId));
+    } else {
+      await db.insert(uploadSessions).values({
+        uploaderId,
+        sessionId: null,
+        startedAt: null,
+        processedCount: 0,
+        lastCompletedAt: new Date(),
+      });
     }
   }
 
-  async incrementUploadProcessedCount(count: number): Promise<void> {
-    const settings = await this.getGuildSettings();
-    if (settings) {
-      const currentCount = settings.uploadSessionProcessedCount ?? 0;
-      await db.update(guildSettings)
-        .set({ uploadSessionProcessedCount: currentCount + count })
-        .where(eq(guildSettings.id, settings.id));
+  async incrementUploadProcessedCount(uploaderId: string, count: number): Promise<void> {
+    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+    if (existing.length > 0) {
+      const [session] = existing;
+      await db.update(uploadSessions)
+        .set({ processedCount: (session.processedCount ?? 0) + count })
+        .where(eq(uploadSessions.uploaderId, uploaderId));
+    } else {
+      await db.insert(uploadSessions).values({
+        uploaderId,
+        sessionId: null,
+        startedAt: null,
+        processedCount: count,
+      });
     }
   }
 
-  async getCurrentUploadSession(): Promise<{ 
-    sessionId: string | null; 
-    startedAt: Date | null;
-    processedCount: number;
-  }> {
-    const settings = await this.getGuildSettings();
+  async getCurrentUploadSession(uploaderId: string): Promise<UploadSessionStatus> {
+    const [session] = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
     return {
-      sessionId: settings?.currentUploadSession ?? null,
-      startedAt: settings?.uploadSessionStartedAt ?? null,
-      processedCount: settings?.uploadSessionProcessedCount ?? 0
+      uploaderId,
+      sessionId: session?.sessionId ?? null,
+      startedAt: session?.startedAt ?? null,
+      processedCount: session?.processedCount ?? 0,
+      lastCompletedAt: session?.lastCompletedAt ?? null,
     };
   }
 
-  async getUploadStatus(): Promise<{
+  async getUploadStatus(uploaderId?: string): Promise<{
     processing: boolean;
     processedCount: number;
     startedAt: Date | null;
     lastCompletedAt: Date | null;
+    uploaderId: string | null;
+    sessions: UploadSessionStatus[];
   }> {
-    const settings = await this.getGuildSettings();
+    const sessionsQuery = uploaderId
+      ? await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId))
+      : await db.select().from(uploadSessions);
+
+    const sessions = sessionsQuery.map<UploadSessionStatus>(session => ({
+      uploaderId: session.uploaderId,
+      sessionId: session.sessionId ?? null,
+      startedAt: session.startedAt ?? null,
+      processedCount: session.processedCount ?? 0,
+      lastCompletedAt: session.lastCompletedAt ?? null,
+    }));
+
+    const activeSession = sessions.find(session => session.sessionId !== null);
+    const processing = !!activeSession;
+    const processedCount = activeSession?.processedCount ?? 0;
+    const startedAt = activeSession?.startedAt ?? null;
+    const lastCompletedAt = sessions.reduce<Date | null>((latest, session) => {
+      if (!session.lastCompletedAt) return latest;
+      if (!latest || session.lastCompletedAt > latest) return session.lastCompletedAt;
+      return latest;
+    }, null);
+
     return {
-      processing: !!settings?.currentUploadSession,
-      processedCount: settings?.uploadSessionProcessedCount ?? 0,
-      startedAt: settings?.uploadSessionStartedAt ?? null,
-      lastCompletedAt: settings?.lastUploadCompletedAt ?? null
+      processing,
+      processedCount,
+      startedAt,
+      lastCompletedAt,
+      uploaderId: activeSession?.uploaderId ?? null,
+      sessions,
     };
   }
 
