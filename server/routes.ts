@@ -553,7 +553,8 @@ export async function registerRoutes(
         return res.status(401).json({ error: "API key required" });
       }
 
-      const uploaderKey = await storage.getActiveUploaderKeyByApiKey(apiKey);
+      const uploaderId = ((req.headers["x-uploader-id"] as string) || "default").trim();
+
       const settings = await storage.getGuildSettings();
       if (!uploaderKey && (!settings?.uploadApiKey || settings.uploadApiKey !== apiKey)) {
         return res.status(403).json({ error: "Invalid API key" });
@@ -580,10 +581,52 @@ export async function registerRoutes(
       const uploadReason = data.reason || null;
       const batchIndex = data.batch_index;
       const totalBatches = data.total_batches;
+      const isBatchedUpload = rosterMode && rosterMode !== 'no_change' && batchIndex !== undefined && !!sessionPhase;
 
       // Legacy session-based handling (for backwards compatibility when no roster_mode)
       const incomingSessionId = data.upload_session_id;
       const isFinalBatch = data.is_final_batch === true;
+
+      let uploaderStatus = await storage.ensureUploaderStatus(uploaderId);
+      const currentSessionId = incomingSessionId ?? uploaderStatus.lastSessionId ?? null;
+
+      // If a new session starts, reset expected batch tracking
+      if (incomingSessionId && incomingSessionId !== uploaderStatus.lastSessionId) {
+        uploaderStatus = await storage.updateUploaderStatus(uploaderId, {
+          lastSessionId: incomingSessionId,
+          lastBatchIndex: -1,
+          expectedBatchIndex: 0,
+          status: "processing",
+          totalBatches: totalBatches ?? null,
+          lastError: null,
+          lastPhase: sessionPhase ?? null,
+        });
+      }
+
+      // Validate batch ordering for batched uploads
+      if (isBatchedUpload) {
+        const expectedIndex = sessionPhase === 'start'
+          ? 0
+          : ((uploaderStatus.lastBatchIndex ?? -1) + 1);
+
+        if (batchIndex !== expectedIndex) {
+          const status = await storage.markUploaderOutOfOrder(uploaderId, {
+            expectedBatchIndex: expectedIndex,
+            receivedBatchIndex: batchIndex,
+            sessionId: currentSessionId,
+            totalBatches: totalBatches ?? null,
+            lastPhase: sessionPhase,
+          });
+
+          return res.status(409).json({
+            error: "Batch out of order",
+            expectedBatchIndex: expectedIndex,
+            receivedBatchIndex: batchIndex ?? null,
+            action: "reprocess",
+            uploaderStatus: status,
+          });
+        }
+      }
 
       // Helper to parse removed members (can be string or {name, reason} object)
       const parseRemovedMember = (member: string | { name: string; reason?: string }): { name: string; realm: string } => {
@@ -829,6 +872,28 @@ export async function registerRoutes(
             }
           }
         }
+      }
+
+      // Update uploader tracking after successful processing
+      if (isBatchedUpload && batchIndex !== undefined) {
+        const completed = sessionPhase === 'final' || isFinalBatch;
+        await storage.updateUploaderStatus(uploaderId, {
+          lastBatchIndex: batchIndex,
+          expectedBatchIndex: completed ? 0 : batchIndex + 1,
+          lastSessionId: currentSessionId,
+          lastPhase: sessionPhase ?? null,
+          totalBatches: totalBatches ?? null,
+          status: completed ? 'idle' : 'processing',
+          lastError: null,
+        });
+      } else if (incomingSessionId) {
+        await storage.updateUploaderStatus(uploaderId, {
+          lastSessionId: currentSessionId,
+          lastPhase: sessionPhase ?? null,
+          totalBatches: totalBatches ?? null,
+          status: sessionPhase === 'final' || isFinalBatch ? 'idle' : 'processing',
+          lastError: null,
+        });
       }
 
       console.log(`Upload processed: mode=${rosterMode || 'legacy'}, ${playersProcessed} players, ${removedCount} removed, ${snapshotsProcessed} snapshots, ${chatDataProcessed} chat entries`);

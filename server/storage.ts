@@ -5,6 +5,7 @@ import {
   mythicRuns, type MythicRun, type InsertMythicRun,
   raidParses, type RaidParse, type InsertRaidParse,
   guildSettings, type GuildSettings, type InsertGuildSettings,
+  uploaderStatuses, type UploaderStatus,
   raidProgress, type RaidProgress, type InsertRaidProgress,
   raidReports, type RaidReport, type InsertRaidReport,
   adminAuditLog, type AdminAuditLog, type InsertAdminAuditLog,
@@ -19,13 +20,13 @@ import {
 import { db } from "./db";
 import { eq, desc, sql, and } from "drizzle-orm";
 
-export type UploadSessionStatus = {
-  uploaderId: string;
-  sessionId: string | null;
-  startedAt: Date | null;
-  processedCount: number;
-  lastCompletedAt: Date | null;
+type UploaderStatusUpdate = Partial<Omit<UploaderStatus, "id" | "uploaderId" | "updatedAt" | "lastBatchIndex">> & {
+  lastBatchIndex?: number;
+  expectedBatchIndex?: number | null;
 };
+
+const sanitizeUpdate = <T extends Record<string, any>>(updates: T) =>
+  Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined));
 
 export interface IStorage {
   getPlayers(): Promise<Player[]>;
@@ -41,18 +42,19 @@ export interface IStorage {
   deactivatePlayersNotIn(activePlayers: { name: string; realm: string }[]): Promise<number>;
   deactivatePlayersByName(playerNames: { name: string; realm: string }[]): Promise<number>;
   markAllPlayersInactive(): Promise<number>;
-  startUploadSession(uploaderId: string, sessionId: string): Promise<void>;
-  clearUploadSession(uploaderId: string): Promise<void>;
-  incrementUploadProcessedCount(uploaderId: string, count: number): Promise<void>;
-  getCurrentUploadSession(uploaderId: string): Promise<UploadSessionStatus>;
-  getUploadStatus(uploaderId?: string): Promise<{
-    processing: boolean;
-    processedCount: number;
-    startedAt: Date | null;
-    lastCompletedAt: Date | null;
-    uploaderId: string | null;
-    sessions: UploadSessionStatus[];
-  }>;
+  startUploadSession(sessionId: string): Promise<void>;
+  clearUploadSession(): Promise<void>;
+  getCurrentUploadSession(): Promise<{ sessionId: string | null; startedAt: Date | null }>;
+  ensureUploaderStatus(uploaderId: string): Promise<UploaderStatus>;
+  updateUploaderStatus(uploaderId: string, updates: UploaderStatusUpdate): Promise<UploaderStatus>;
+  markUploaderOutOfOrder(uploaderId: string, updates: {
+    expectedBatchIndex: number;
+    receivedBatchIndex: number | undefined;
+    sessionId?: string | null;
+    totalBatches?: number | null;
+    lastPhase?: string | null;
+  }): Promise<UploaderStatus>;
+  getUploaderStatuses(): Promise<UploaderStatus[]>;
 
   getActivitySnapshots(): Promise<ActivitySnapshot[]>;
   createActivitySnapshot(snapshot: InsertActivitySnapshot): Promise<ActivitySnapshot>;
@@ -360,8 +362,12 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getCurrentUploadSession(uploaderId: string): Promise<UploadSessionStatus> {
-    const [session] = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+  async getCurrentUploadSession(): Promise<{
+    sessionId: string | null;
+    startedAt: Date | null;
+    processedCount: number;
+  }> {
+    const settings = await this.getGuildSettings();
     return {
       uploaderId,
       sessionId: session?.sessionId ?? null,
@@ -371,43 +377,75 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getUploadStatus(uploaderId?: string): Promise<{
+  async ensureUploaderStatus(uploaderId: string): Promise<UploaderStatus> {
+    const existing = await this.getUploaderStatusRecord(uploaderId);
+    if (existing) return existing;
+
+    const [created] = await db.insert(uploaderStatuses)
+      .values({ uploaderId })
+      .returning();
+
+    return created;
+  }
+
+  async updateUploaderStatus(uploaderId: string, updates: UploaderStatusUpdate): Promise<UploaderStatus> {
+    const current = await this.ensureUploaderStatus(uploaderId);
+    const payload = sanitizeUpdate({
+      ...updates,
+      updatedAt: new Date(),
+    });
+
+    const [updated] = await db.update(uploaderStatuses)
+      .set(payload)
+      .where(eq(uploaderStatuses.id, current.id))
+      .returning();
+
+    return updated;
+  }
+
+  async markUploaderOutOfOrder(
+    uploaderId: string,
+    updates: {
+      expectedBatchIndex: number;
+      receivedBatchIndex: number | undefined;
+      sessionId?: string | null;
+      totalBatches?: number | null;
+      lastPhase?: string | null;
+    }
+  ): Promise<UploaderStatus> {
+    const errorMessage = `Out-of-order batch (expected ${updates.expectedBatchIndex}, received ${updates.receivedBatchIndex ?? "none"})`;
+    return this.updateUploaderStatus(uploaderId, {
+      status: "out_of_order",
+      lastError: errorMessage,
+      expectedBatchIndex: updates.expectedBatchIndex,
+      lastBatchIndex: updates.receivedBatchIndex !== undefined ? updates.receivedBatchIndex : undefined,
+      lastSessionId: updates.sessionId ?? undefined,
+      totalBatches: updates.totalBatches ?? undefined,
+      lastPhase: updates.lastPhase ?? undefined,
+    });
+  }
+
+  async getUploaderStatuses(): Promise<UploaderStatus[]> {
+    return await db.select().from(uploaderStatuses);
+  }
+
+  async getUploadStatus(): Promise<{
     processing: boolean;
     processedCount: number;
     startedAt: Date | null;
     lastCompletedAt: Date | null;
-    uploaderId: string | null;
-    sessions: UploadSessionStatus[];
+    uploaders: UploaderStatus[];
   }> {
-    const sessionsQuery = uploaderId
-      ? await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId))
-      : await db.select().from(uploadSessions);
-
-    const sessions = sessionsQuery.map<UploadSessionStatus>(session => ({
-      uploaderId: session.uploaderId,
-      sessionId: session.sessionId ?? null,
-      startedAt: session.startedAt ?? null,
-      processedCount: session.processedCount ?? 0,
-      lastCompletedAt: session.lastCompletedAt ?? null,
-    }));
-
-    const activeSession = sessions.find(session => session.sessionId !== null);
-    const processing = !!activeSession;
-    const processedCount = activeSession?.processedCount ?? 0;
-    const startedAt = activeSession?.startedAt ?? null;
-    const lastCompletedAt = sessions.reduce<Date | null>((latest, session) => {
-      if (!session.lastCompletedAt) return latest;
-      if (!latest || session.lastCompletedAt > latest) return session.lastCompletedAt;
-      return latest;
-    }, null);
-
+    const [settings, uploaders] = await Promise.all([
+      this.getGuildSettings(),
+      this.getUploaderStatuses()
+    ]);
     return {
-      processing,
-      processedCount,
-      startedAt,
-      lastCompletedAt,
-      uploaderId: activeSession?.uploaderId ?? null,
-      sessions,
+      processing: !!settings?.currentUploadSession,
+      processedCount: settings?.uploadSessionProcessedCount ?? 0,
+      startedAt: settings?.uploadSessionStartedAt ?? null,
+      lastCompletedAt: settings?.lastUploadCompletedAt ?? null,
+      uploaders,
     };
   }
 
@@ -899,6 +937,11 @@ export class DatabaseStorage implements IStorage {
   async deleteCoreApplication(id: string): Promise<boolean> {
     await db.delete(coreApplications).where(eq(coreApplications.id, id));
     return true;
+  }
+
+  private async getUploaderStatusRecord(uploaderId: string): Promise<UploaderStatus | undefined> {
+    const [status] = await db.select().from(uploaderStatuses).where(eq(uploaderStatuses.uploaderId, uploaderId));
+    return status || undefined;
   }
 }
 

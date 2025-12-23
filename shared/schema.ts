@@ -252,25 +252,27 @@ export const guildSettings = pgTable("guild_settings", {
   lastUploadCompletedAt: timestamp("last_upload_completed_at"),
 });
 
+// Uploader status tracking
+export const uploaderStatuses = pgTable("uploader_statuses", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  uploaderId: varchar("uploader_id", { length: 128 }).notNull(),
+  lastSessionId: varchar("last_session_id", { length: 128 }),
+  lastBatchIndex: integer("last_batch_index").notNull().default(-1),
+  lastPhase: varchar("last_phase", { length: 16 }),
+  totalBatches: integer("total_batches"),
+  expectedBatchIndex: integer("expected_batch_index"),
+  status: varchar("status", { length: 32 }).notNull().default("idle"),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  uploaderIdIndex: uniqueIndex("uploader_statuses_uploader_id_idx").on(table.uploaderId),
+}));
+
 export const insertGuildSettingsSchema = createInsertSchema(guildSettings).omit({ id: true });
 export type GuildSettings = typeof guildSettings.$inferSelect;
 export type InsertGuildSettings = z.infer<typeof insertGuildSettingsSchema>;
 
-// Uploader keys table - manages API keys per uploader instance
-export const uploaderKeys = pgTable("uploader_keys", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
-  uploaderId: varchar("uploader_id", { length: 100 }).notNull(),
-  apiKey: varchar("api_key", { length: 128 }).notNull(),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => [
-  uniqueIndex("uploader_keys_api_key_idx").on(table.apiKey),
-  uniqueIndex("uploader_keys_uploader_id_idx").on(table.uploaderId),
-]);
-
-export const insertUploaderKeySchema = createInsertSchema(uploaderKeys).omit({ id: true, createdAt: true });
-export type UploaderKey = typeof uploaderKeys.$inferSelect;
-export type InsertUploaderKey = z.infer<typeof insertUploaderKeySchema>;
+export type UploaderStatus = typeof uploaderStatuses.$inferSelect;
 
 // Activity Events table (for activity feed)
 export const activityEvents = pgTable("activity_events", {
