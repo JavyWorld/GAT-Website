@@ -553,14 +553,15 @@ export async function registerRoutes(
         return res.status(401).json({ error: "API key required" });
       }
 
-      const uploaderId = ((req.headers["x-uploader-id"] as string) || "default").trim();
+      const headerUploaderId = ((req.headers["x-uploader-id"] as string) || "default").trim();
+      const uploaderKey = await storage.getActiveUploaderKeyByApiKey(apiKey);
 
       const settings = await storage.getGuildSettings();
       if (!uploaderKey && (!settings?.uploadApiKey || settings.uploadApiKey !== apiKey)) {
         return res.status(403).json({ error: "Invalid API key" });
       }
 
-      const uploaderId = uploaderKey?.uploaderId || (settings?.uploadApiKey === apiKey ? "legacy" : null);
+      const uploaderId = uploaderKey?.uploaderId || (settings?.uploadApiKey === apiKey ? "legacy" : headerUploaderId);
 
       const data = addonUploadSchema.parse(req.body);
       const defaultRealm = settings?.realm || "Unknown";
