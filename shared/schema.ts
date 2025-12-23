@@ -256,6 +256,21 @@ export const insertGuildSettingsSchema = createInsertSchema(guildSettings).omit(
 export type GuildSettings = typeof guildSettings.$inferSelect;
 export type InsertGuildSettings = z.infer<typeof insertGuildSettingsSchema>;
 
+// Per-uploader upload sessions (parallel uploaders)
+export const uploadSessions = pgTable("upload_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  uploaderId: varchar("uploader_id", { length: 128 }).notNull(),
+  sessionId: varchar("session_id", { length: 64 }),
+  processedCount: integer("processed_count").default(0),
+  startedAt: timestamp("started_at"),
+  lastCompletedAt: timestamp("last_completed_at"),
+});
+
+export const insertUploadSessionSchema = createInsertSchema(uploadSessions).omit({ id: true });
+export const selectUploadSessionSchema = createSelectSchema(uploadSessions);
+export type UploadSession = typeof uploadSessions.$inferSelect;
+export type InsertUploadSession = z.infer<typeof insertUploadSessionSchema>;
+
 // Activity Events table (for activity feed)
 export const activityEvents = pgTable("activity_events", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
@@ -496,10 +511,12 @@ export const addonUploadSchema = z.object({
   removed_members: z.array(z.union([z.string(), removedMemberSchema])).optional(),
   roster_summary: rosterSummarySchema,
   reason: z.string().optional(),
+  uploader_id: z.string().optional(),
   // Camel case variants (uploader may send either)
   rosterMode: rosterModeSchema,
   removedMembers: z.array(z.union([z.string(), removedMemberSchema])).optional(),
   rosterSummary: rosterSummarySchema,
+  uploaderId: z.string().optional(),
 });
 
 export type AddonUploadData = z.infer<typeof addonUploadSchema>;
