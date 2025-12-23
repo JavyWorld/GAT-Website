@@ -573,6 +573,9 @@ export async function registerRoutes(
       const rosterMode = data.roster_mode || data.rosterMode || null;
       const sessionPhase = data.session_phase || data.sessionPhase || null;
       const removedMembers = data.removed_members || data.removedMembers || [];
+      const addUpdateOnly = data.add_update_only ?? data.addUpdateOnly ?? false;
+      const confirmRemovals = data.confirm_removals ?? data.confirmRemovals ?? false;
+      const baseRosterHash = data.base_roster_hash || data.baseRosterHash || null;
       const rosterSummary = data.roster_summary || data.rosterSummary || null;
       const uploadReason = data.reason || null;
       const batchIndex = data.batch_index;
@@ -587,6 +590,19 @@ export async function registerRoutes(
         const fullName = typeof member === 'string' ? member : member.name;
         return parsePlayerName(fullName, defaultRealm);
       };
+
+      const removalGuardPassed =
+        removedMembers.length > 0 &&
+        !addUpdateOnly &&
+        (confirmRemovals || !!baseRosterHash);
+
+      const removalSkipReason = removedMembers.length === 0
+        ? null
+        : addUpdateOnly
+          ? "add_update_only flag enabled"
+          : (confirmRemovals || baseRosterHash)
+            ? null
+            : "removals require confirm_removals or base_roster_hash";
 
       // Helper to upsert players from roster (used by all modes)
       const upsertRosterPlayers = async () => {
@@ -659,12 +675,14 @@ export async function registerRoutes(
         } else if (sessionPhase === 'final') {
           // FINAL phase: Upsert remaining players, then process removals
           playersProcessed = await upsertRosterPlayers();
-          
+
           // Only now do we process explicit removals
-          if (removedMembers.length > 0) {
+          if (removalGuardPassed) {
             const playersToRemove = removedMembers.map(parseRemovedMember);
             removedCount = await storage.deactivatePlayersByName(playersToRemove);
             console.log(`Final batch: deactivated ${removedCount} explicitly removed players`);
+          } else if (removalSkipReason) {
+            console.log(`Final batch: skipped processing removed_members (${removalSkipReason})`);
           }
           
           // Clear session
@@ -675,10 +693,12 @@ export async function registerRoutes(
           // No session_phase provided - single-batch upload (backwards compat)
           // Just upsert players and process removals if present
           playersProcessed = await upsertRosterPlayers();
-          
-          if (removedMembers.length > 0) {
+
+          if (removalGuardPassed) {
             const playersToRemove = removedMembers.map(parseRemovedMember);
             removedCount = await storage.deactivatePlayersByName(playersToRemove);
+          } else if (removalSkipReason) {
+            console.log(`Single-batch ${rosterMode || 'legacy'} mode: skipped processing removed_members (${removalSkipReason})`);
           }
           
           // If is_final_batch is true, clear session

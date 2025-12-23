@@ -113,6 +113,11 @@ The uploader can specify a `roster_mode` to control how roster changes are proce
 | `no_change` | Heartbeat only. No roster modifications, just updates the last upload timestamp. Useful for activity-only uploads. |
 | (none) | Legacy mode. Uses session-based batch processing for backwards compatibility. |
 
+**Removal safeguards**:
+
+- Set `add_update_only: true` (or `addUpdateOnly`) to ignore any `removed_members` entries for a given upload.
+- Otherwise, removals are only processed when you explicitly set `confirm_removals: true` (or `confirmRemovals`) or provide a `base_roster_hash`/`baseRosterHash` value alongside `removed_members`.
+
 ### Session Phases (for batched uploads)
 
 **GOLDEN RULE**: "Absence in a batch" NEVER means removal. Only players in `removed_members` are deactivated, and only on the `final` phase.
