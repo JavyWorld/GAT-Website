@@ -13,6 +13,7 @@ import {
   raidSchedules, type RaidSchedule, type InsertRaidSchedule,
   coreMembers, type CoreMember, type InsertCoreMember,
   coreApplications, type CoreApplication, type InsertCoreApplication,
+  uploaderKeys, type UploaderKey, type InsertUploaderKey,
   type HeatmapData,
   type DashboardStats,
 } from "@shared/schema";
@@ -79,6 +80,10 @@ export interface IStorage {
 
   getGuildSettings(): Promise<GuildSettings | undefined>;
   updateGuildSettings(settings: InsertGuildSettings): Promise<GuildSettings>;
+
+  getActiveUploaderKeyByApiKey(apiKey: string): Promise<UploaderKey | undefined>;
+  upsertUploaderKey(key: InsertUploaderKey): Promise<UploaderKey>;
+  deactivateUploaderKey(id: string): Promise<UploaderKey | undefined>;
 
   getHeatmapData(): Promise<HeatmapData>;
   getDashboardStats(): Promise<DashboardStats>;
@@ -296,40 +301,64 @@ export class DatabaseStorage implements IStorage {
     return deactivatedCount;
   }
 
-  async startUploadSession(sessionId: string): Promise<void> {
-    const settings = await this.getGuildSettings();
-    if (settings) {
-      await db.update(guildSettings)
-        .set({ 
-          currentUploadSession: sessionId,
-          uploadSessionStartedAt: new Date(),
-          uploadSessionProcessedCount: 0
+  async startUploadSession(uploaderId: string, sessionId: string): Promise<void> {
+    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+
+    if (existing.length > 0) {
+      await db.update(uploadSessions)
+        .set({
+          sessionId,
+          startedAt: new Date(),
+          processedCount: 0,
         })
-        .where(eq(guildSettings.id, settings.id));
+        .where(eq(uploadSessions.uploaderId, uploaderId));
+    } else {
+      await db.insert(uploadSessions).values({
+        uploaderId,
+        sessionId,
+        startedAt: new Date(),
+        processedCount: 0,
+      });
     }
   }
 
-  async clearUploadSession(): Promise<void> {
-    const settings = await this.getGuildSettings();
-    if (settings) {
-      await db.update(guildSettings)
-        .set({ 
-          currentUploadSession: null,
-          uploadSessionStartedAt: null,
-          uploadSessionProcessedCount: 0,
-          lastUploadCompletedAt: new Date()
+  async clearUploadSession(uploaderId: string): Promise<void> {
+    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+
+    if (existing.length > 0) {
+      await db.update(uploadSessions)
+        .set({
+          sessionId: null,
+          startedAt: null,
+          processedCount: 0,
+          lastCompletedAt: new Date(),
         })
-        .where(eq(guildSettings.id, settings.id));
+        .where(eq(uploadSessions.uploaderId, uploaderId));
+    } else {
+      await db.insert(uploadSessions).values({
+        uploaderId,
+        sessionId: null,
+        startedAt: null,
+        processedCount: 0,
+        lastCompletedAt: new Date(),
+      });
     }
   }
 
-  async incrementUploadProcessedCount(count: number): Promise<void> {
-    const settings = await this.getGuildSettings();
-    if (settings) {
-      const currentCount = settings.uploadSessionProcessedCount ?? 0;
-      await db.update(guildSettings)
-        .set({ uploadSessionProcessedCount: currentCount + count })
-        .where(eq(guildSettings.id, settings.id));
+  async incrementUploadProcessedCount(uploaderId: string, count: number): Promise<void> {
+    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+    if (existing.length > 0) {
+      const [session] = existing;
+      await db.update(uploadSessions)
+        .set({ processedCount: (session.processedCount ?? 0) + count })
+        .where(eq(uploadSessions.uploaderId, uploaderId));
+    } else {
+      await db.insert(uploadSessions).values({
+        uploaderId,
+        sessionId: null,
+        startedAt: null,
+        processedCount: count,
+      });
     }
   }
 
@@ -340,9 +369,11 @@ export class DatabaseStorage implements IStorage {
   }> {
     const settings = await this.getGuildSettings();
     return {
-      sessionId: settings?.currentUploadSession ?? null,
-      startedAt: settings?.uploadSessionStartedAt ?? null,
-      processedCount: settings?.uploadSessionProcessedCount ?? 0
+      uploaderId,
+      sessionId: session?.sessionId ?? null,
+      startedAt: session?.startedAt ?? null,
+      processedCount: session?.processedCount ?? 0,
+      lastCompletedAt: session?.lastCompletedAt ?? null,
     };
   }
 
@@ -614,9 +645,44 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getActiveUploaderKeyByApiKey(apiKey: string): Promise<UploaderKey | undefined> {
+    const [key] = await db.select().from(uploaderKeys)
+      .where(and(eq(uploaderKeys.apiKey, apiKey), eq(uploaderKeys.isActive, true)))
+      .limit(1);
+    return key || undefined;
+  }
+
+  async upsertUploaderKey(key: InsertUploaderKey): Promise<UploaderKey> {
+    const existing = await db.select().from(uploaderKeys)
+      .where(eq(uploaderKeys.uploaderId, key.uploaderId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      const [updated] = await db.update(uploaderKeys)
+        .set({
+          apiKey: key.apiKey,
+          isActive: key.isActive ?? existing[0].isActive,
+        })
+        .where(eq(uploaderKeys.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db.insert(uploaderKeys).values(key).returning();
+    return created;
+  }
+
+  async deactivateUploaderKey(id: string): Promise<UploaderKey | undefined> {
+    const [updated] = await db.update(uploaderKeys)
+      .set({ isActive: false })
+      .where(eq(uploaderKeys.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
   async getHeatmapData(): Promise<HeatmapData> {
     const snapshots = await this.getActivitySnapshots();
-    
+
     const aggregated: Record<string, { total: number; count: number }> = {};
     
     for (let day = 0; day < 7; day++) {
