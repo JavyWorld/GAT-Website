@@ -42,9 +42,11 @@ export interface IStorage {
   deactivatePlayersNotIn(activePlayers: { name: string; realm: string }[]): Promise<number>;
   deactivatePlayersByName(playerNames: { name: string; realm: string }[]): Promise<number>;
   markAllPlayersInactive(): Promise<number>;
-  startUploadSession(sessionId: string): Promise<void>;
-  clearUploadSession(): Promise<void>;
-  getCurrentUploadSession(): Promise<{ sessionId: string | null; startedAt: Date | null }>;
+  startUploadSession(uploaderId: string, sessionId: string): Promise<void>;
+  clearUploadSession(uploaderId: string): Promise<void>;
+  getCurrentUploadSession(
+    uploaderId: string
+  ): Promise<{ sessionId: string | null; startedAt: Date | null; processedCount: number; lastCompletedAt: Date | null }>;
   ensureUploaderStatus(uploaderId: string): Promise<UploaderStatus>;
   updateUploaderStatus(uploaderId: string, updates: UploaderStatusUpdate): Promise<UploaderStatus>;
   markUploaderOutOfOrder(uploaderId: string, updates: {
@@ -302,78 +304,55 @@ export class DatabaseStorage implements IStorage {
   }
 
   async startUploadSession(uploaderId: string, sessionId: string): Promise<void> {
-    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+    const settings = await this.getGuildSettings();
+    if (!settings) return;
 
-    if (existing.length > 0) {
-      await db.update(uploadSessions)
-        .set({
-          sessionId,
-          startedAt: new Date(),
-          processedCount: 0,
-        })
-        .where(eq(uploadSessions.uploaderId, uploaderId));
-    } else {
-      await db.insert(uploadSessions).values({
-        uploaderId,
-        sessionId,
-        startedAt: new Date(),
-        processedCount: 0,
-      });
-    }
+    await db
+      .update(guildSettings)
+      .set({
+        currentUploadSession: sessionId,
+        uploadSessionStartedAt: new Date(),
+        uploadSessionProcessedCount: 0,
+      })
+      .where(eq(guildSettings.id, settings.id));
   }
 
   async clearUploadSession(uploaderId: string): Promise<void> {
-    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
+    const settings = await this.getGuildSettings();
+    if (!settings) return;
 
-    if (existing.length > 0) {
-      await db.update(uploadSessions)
-        .set({
-          sessionId: null,
-          startedAt: null,
-          processedCount: 0,
-          lastCompletedAt: new Date(),
-        })
-        .where(eq(uploadSessions.uploaderId, uploaderId));
-    } else {
-      await db.insert(uploadSessions).values({
-        uploaderId,
-        sessionId: null,
-        startedAt: null,
-        processedCount: 0,
-        lastCompletedAt: new Date(),
-      });
-    }
+    await db
+      .update(guildSettings)
+      .set({
+        currentUploadSession: null,
+        uploadSessionStartedAt: null,
+        uploadSessionProcessedCount: 0,
+        lastUploadCompletedAt: new Date(),
+      })
+      .where(eq(guildSettings.id, settings.id));
   }
 
   async incrementUploadProcessedCount(uploaderId: string, count: number): Promise<void> {
-    const existing = await db.select().from(uploadSessions).where(eq(uploadSessions.uploaderId, uploaderId));
-    if (existing.length > 0) {
-      const [session] = existing;
-      await db.update(uploadSessions)
-        .set({ processedCount: (session.processedCount ?? 0) + count })
-        .where(eq(uploadSessions.uploaderId, uploaderId));
-    } else {
-      await db.insert(uploadSessions).values({
-        uploaderId,
-        sessionId: null,
-        startedAt: null,
-        processedCount: count,
-      });
-    }
+    const settings = await this.getGuildSettings();
+    if (!settings) return;
+
+    await db
+      .update(guildSettings)
+      .set({ uploadSessionProcessedCount: (settings.uploadSessionProcessedCount ?? 0) + count })
+      .where(eq(guildSettings.id, settings.id));
   }
 
-  async getCurrentUploadSession(): Promise<{
+  async getCurrentUploadSession(_uploaderId: string): Promise<{
     sessionId: string | null;
     startedAt: Date | null;
     processedCount: number;
   }> {
     const settings = await this.getGuildSettings();
     return {
-      uploaderId,
-      sessionId: session?.sessionId ?? null,
-      startedAt: session?.startedAt ?? null,
-      processedCount: session?.processedCount ?? 0,
-      lastCompletedAt: session?.lastCompletedAt ?? null,
+      sessionId: settings?.currentUploadSession ?? null,
+      startedAt: settings?.uploadSessionStartedAt ?? null,
+      processedCount: settings?.uploadSessionProcessedCount ?? 0,
+      lastCompletedAt: settings?.lastUploadCompletedAt ?? null,
     };
   }
 
