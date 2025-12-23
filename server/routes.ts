@@ -244,7 +244,8 @@ export async function registerRoutes(
   // Upload status endpoint for frontend polling
   app.get("/api/upload/status", async (req, res) => {
     try {
-      const status = await storage.getUploadStatus();
+      const uploaderId = (req.query.uploaderId as string) || (req.query.uploader_id as string) || undefined;
+      const status = await storage.getUploadStatus(uploaderId);
       res.json(status);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch upload status" });
@@ -608,7 +609,7 @@ export async function registerRoutes(
         return count;
       };
 
-      console.log(`Upload received: mode=${rosterMode || 'legacy'}, phase=${sessionPhase || 'none'}, batch=${batchIndex ?? 'n/a'}/${totalBatches ?? 'n/a'}, roster=${Object.keys(data.master_roster || {}).length}, removed=${removedMembers.length}`);
+      console.log(`Upload received: uploader=${uploaderId || 'default'}, mode=${rosterMode || 'legacy'}, phase=${sessionPhase || 'none'}, batch=${batchIndex ?? 'n/a'}/${totalBatches ?? 'n/a'}, roster=${Object.keys(data.master_roster || {}).length}, removed=${removedMembers.length}`);
 
       // ============================================================
       // GOLDEN RULE: NEVER mark players inactive just because they
@@ -628,7 +629,7 @@ export async function registerRoutes(
       // Process based on roster_mode
       if (rosterMode === 'no_change') {
         // Heartbeat mode - no roster changes, just update timestamp
-        await storage.clearUploadSession(); // Update lastCompletedAt
+        await storage.clearUploadSession(uploaderId); // Update lastCompletedAt
         console.log('Heartbeat received (no_change mode) - no roster mutations');
         
       } else if (rosterMode === 'delta' || rosterMode === 'full') {
@@ -638,11 +639,11 @@ export async function registerRoutes(
         if (sessionPhase === 'start') {
           // START phase: Initialize session, don't touch any players
           if (incomingSessionId) {
-            const currentSession = await storage.getCurrentUploadSession();
+            const currentSession = await storage.getCurrentUploadSession(uploaderId);
             // Only start session if it's a new one (guard against re-processing)
             if (currentSession.sessionId !== incomingSessionId) {
-              await storage.startUploadSession(incomingSessionId);
-              console.log(`Started upload session ${incomingSessionId} (${rosterMode} mode)`);
+              await storage.startUploadSession(uploaderId, incomingSessionId);
+              console.log(`Started upload session ${incomingSessionId} for uploader ${uploaderId} (${rosterMode} mode)`);
             } else {
               console.log(`Session ${incomingSessionId} already active, continuing...`);
             }
@@ -667,8 +668,8 @@ export async function registerRoutes(
           }
           
           // Clear session
-          await storage.clearUploadSession();
-          console.log(`Upload session completed (${rosterMode} mode): ${playersProcessed} in final batch, ${removedCount} removed`);
+          await storage.clearUploadSession(uploaderId);
+          console.log(`Upload session completed (${rosterMode} mode) for uploader ${uploaderId}: ${playersProcessed} in final batch, ${removedCount} removed`);
           
         } else {
           // No session_phase provided - single-batch upload (backwards compat)
@@ -682,41 +683,41 @@ export async function registerRoutes(
           
           // If is_final_batch is true, clear session
           if (isFinalBatch) {
-            await storage.clearUploadSession();
+            await storage.clearUploadSession(uploaderId);
           }
-          
-          console.log(`Single-batch ${rosterMode} mode: processed ${playersProcessed} players, removed ${removedCount}`);
+
+          console.log(`Single-batch ${rosterMode} mode for uploader ${uploaderId}: processed ${playersProcessed} players, removed ${removedCount}`);
         }
         
       } else {
         // Legacy mode (no roster_mode specified) - backwards compatible with old uploader
         // This mode uses the old session-based logic where a new session marks all inactive
-        const currentSession = await storage.getCurrentUploadSession();
+        const currentSession = await storage.getCurrentUploadSession(uploaderId);
 
         // If new session ID provided and different from current, start new session
         if (incomingSessionId && incomingSessionId !== currentSession.sessionId) {
           // New upload session - mark all existing players as inactive
           const markedInactive = await storage.markAllPlayersInactive();
-          await storage.startUploadSession(incomingSessionId);
-          console.log(`[LEGACY] Started new upload session ${incomingSessionId}, marked ${markedInactive} players inactive`);
+          await storage.startUploadSession(uploaderId, incomingSessionId);
+          console.log(`[LEGACY] Started new upload session ${incomingSessionId} for uploader ${uploaderId}, marked ${markedInactive} players inactive`);
         }
 
         // Process master_roster
         playersProcessed = await upsertRosterPlayers();
 
         if (playersProcessed > 0) {
-          await storage.incrementUploadProcessedCount(playersProcessed);
+          await storage.incrementUploadProcessedCount(uploaderId, playersProcessed);
         }
 
         if (isFinalBatch && incomingSessionId) {
-          await storage.clearUploadSession();
-          console.log(`[LEGACY] Upload session ${incomingSessionId} completed. Players not in roster remain inactive.`);
+          await storage.clearUploadSession(uploaderId);
+          console.log(`[LEGACY] Upload session ${incomingSessionId} for uploader ${uploaderId} completed. Players not in roster remain inactive.`);
         }
       }
 
       // Update processed count for new modes
       if (rosterMode && playersProcessed > 0) {
-        await storage.incrementUploadProcessedCount(playersProcessed);
+        await storage.incrementUploadProcessedCount(uploaderId, playersProcessed);
       }
 
       // 2. Process stats array - activity snapshots with online players

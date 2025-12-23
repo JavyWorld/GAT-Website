@@ -513,10 +513,12 @@ export const addonUploadSchema = z.object({
   removed_members: z.array(z.union([z.string(), removedMemberSchema])).optional(),
   roster_summary: rosterSummarySchema,
   reason: z.string().optional(),
+  uploader_id: z.string().optional(),
   // Camel case variants (uploader may send either)
   rosterMode: rosterModeSchema,
   removedMembers: z.array(z.union([z.string(), removedMemberSchema])).optional(),
   rosterSummary: rosterSummarySchema,
+  uploaderId: z.string().optional(),
 });
 
 export type AddonUploadData = z.infer<typeof addonUploadSchema>;
