@@ -12,7 +12,7 @@ import {
   raidSchedules, type RaidSchedule, type InsertRaidSchedule,
   coreMembers, type CoreMember, type InsertCoreMember,
   coreApplications, type CoreApplication, type InsertCoreApplication,
-  uploadSessions, type UploadSession,
+  uploaderKeys, type UploaderKey, type InsertUploaderKey,
   type HeatmapData,
   type DashboardStats,
 } from "@shared/schema";
@@ -78,6 +78,10 @@ export interface IStorage {
 
   getGuildSettings(): Promise<GuildSettings | undefined>;
   updateGuildSettings(settings: InsertGuildSettings): Promise<GuildSettings>;
+
+  getActiveUploaderKeyByApiKey(apiKey: string): Promise<UploaderKey | undefined>;
+  upsertUploaderKey(key: InsertUploaderKey): Promise<UploaderKey>;
+  deactivateUploaderKey(id: string): Promise<UploaderKey | undefined>;
 
   getHeatmapData(): Promise<HeatmapData>;
   getDashboardStats(): Promise<DashboardStats>;
@@ -603,9 +607,44 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getActiveUploaderKeyByApiKey(apiKey: string): Promise<UploaderKey | undefined> {
+    const [key] = await db.select().from(uploaderKeys)
+      .where(and(eq(uploaderKeys.apiKey, apiKey), eq(uploaderKeys.isActive, true)))
+      .limit(1);
+    return key || undefined;
+  }
+
+  async upsertUploaderKey(key: InsertUploaderKey): Promise<UploaderKey> {
+    const existing = await db.select().from(uploaderKeys)
+      .where(eq(uploaderKeys.uploaderId, key.uploaderId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      const [updated] = await db.update(uploaderKeys)
+        .set({
+          apiKey: key.apiKey,
+          isActive: key.isActive ?? existing[0].isActive,
+        })
+        .where(eq(uploaderKeys.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db.insert(uploaderKeys).values(key).returning();
+    return created;
+  }
+
+  async deactivateUploaderKey(id: string): Promise<UploaderKey | undefined> {
+    const [updated] = await db.update(uploaderKeys)
+      .set({ isActive: false })
+      .where(eq(uploaderKeys.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
   async getHeatmapData(): Promise<HeatmapData> {
     const snapshots = await this.getActivitySnapshots();
-    
+
     const aggregated: Record<string, { total: number; count: number }> = {};
     
     for (let day = 0; day < 7; day++) {
