@@ -494,11 +494,17 @@ export const addonUploadSchema = z.object({
   // Roster mode fields (snake_case)
   roster_mode: rosterModeSchema,
   removed_members: z.array(z.union([z.string(), removedMemberSchema])).optional(),
+  add_update_only: z.boolean().optional(),
+  confirm_removals: z.boolean().optional(),
+  base_roster_hash: z.string().optional(),
   roster_summary: rosterSummarySchema,
   reason: z.string().optional(),
   // Camel case variants (uploader may send either)
   rosterMode: rosterModeSchema,
   removedMembers: z.array(z.union([z.string(), removedMemberSchema])).optional(),
+  addUpdateOnly: z.boolean().optional(),
+  confirmRemovals: z.boolean().optional(),
+  baseRosterHash: z.string().optional(),
   rosterSummary: rosterSummarySchema,
 });
 
