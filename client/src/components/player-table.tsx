@@ -97,8 +97,7 @@ export function PlayerTable({
 
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      const response = await apiRequest("POST", "/api/players/bulk-delete", { ids });
-      return response.json() as Promise<{ deleted: number }>;
+      return apiRequest<{ deleted: number }>("POST", "/api/players/bulk-delete", { ids });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });

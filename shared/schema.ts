@@ -274,6 +274,17 @@ export type InsertGuildSettings = z.infer<typeof insertGuildSettingsSchema>;
 
 export type UploaderStatus = typeof uploaderStatuses.$inferSelect;
 
+export const uploaderKeys = pgTable("uploader_keys", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  uploaderId: varchar("uploader_id", { length: 128 }).notNull(),
+  apiKey: varchar("api_key", { length: 128 }).notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type UploaderKey = typeof uploaderKeys.$inferSelect;
+export type InsertUploaderKey = typeof uploaderKeys.$inferInsert;
+
 // Activity Events table (for activity feed)
 export const activityEvents = pgTable("activity_events", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
