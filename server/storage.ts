@@ -346,6 +346,7 @@ export class DatabaseStorage implements IStorage {
     sessionId: string | null;
     startedAt: Date | null;
     processedCount: number;
+    lastCompletedAt: Date | null;
   }> {
     const settings = await this.getGuildSettings();
     return {

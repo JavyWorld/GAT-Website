@@ -33,12 +33,14 @@ interface LeaderboardCardProps {
   showPodium?: boolean;
 }
 
-function getScoreColor(score: number): string {
-  if (score >= 3000) return "#E268A8";
-  if (score >= 2500) return "#FF8000";
-  if (score >= 2000) return "#A335EE";
-  if (score >= 1500) return "#0070FF";
-  if (score >= 1000) return "#1EFF00";
+function getScoreColor(score: number | null): string {
+  const value = score ?? 0;
+
+  if (value >= 3000) return "#E268A8";
+  if (value >= 2500) return "#FF8000";
+  if (value >= 2000) return "#A335EE";
+  if (value >= 1500) return "#0070FF";
+  if (value >= 1000) return "#1EFF00";
   return "#666666";
 }
 
@@ -70,7 +72,7 @@ function getRankBg(rank: number): string {
 
 export function LeaderboardCard({ players, title = "M+ Leaderboard", showPodium = true }: LeaderboardCardProps) {
   const isMobile = useIsMobile();
-  const sortedPlayers = [...players].sort((a, b) => b.mythicScore - a.mythicScore);
+  const sortedPlayers = [...players].sort((a, b) => (b.mythicScore ?? 0) - (a.mythicScore ?? 0));
   const topThree = sortedPlayers.slice(0, 3);
   const topTen = sortedPlayers.slice(0, 10);
   const rest = sortedPlayers.slice(3, 10);
@@ -109,7 +111,7 @@ export function LeaderboardCard({ players, title = "M+ Leaderboard", showPodium 
                   >
                     <div className="relative mb-2">
                       <Avatar className="w-14 h-14 ring-2 ring-offset-2 ring-offset-background transition-transform group-hover:scale-110"
-                        style={{ ringColor: classColor }}
+                        style={{ boxShadow: `0 0 0 2px ${classColor}` }}
                       >
                         {player.avatarUrl ? (
                           <AvatarImage src={player.avatarUrl} alt={player.name} />
@@ -146,7 +148,7 @@ export function LeaderboardCard({ players, title = "M+ Leaderboard", showPodium 
                       className="text-lg font-mono font-bold"
                       style={{ color: scoreColor }}
                     >
-                      {player.mythicScore.toLocaleString()}
+                      {(player.mythicScore ?? 0).toLocaleString()}
                     </span>
                     
                     <div 
@@ -223,7 +225,7 @@ export function LeaderboardCard({ players, title = "M+ Leaderboard", showPodium 
                     className={`font-mono font-semibold ${isTopThree ? 'text-base' : 'text-sm'}`}
                     style={{ color: scoreColor }}
                   >
-                    {player.mythicScore.toLocaleString()}
+                    {(player.mythicScore ?? 0).toLocaleString()}
                   </span>
                 </div>
               </Link>

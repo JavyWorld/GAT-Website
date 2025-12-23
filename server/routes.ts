@@ -245,7 +245,7 @@ export async function registerRoutes(
   app.get("/api/upload/status", async (req, res) => {
     try {
       const uploaderId = (req.query.uploaderId as string) || (req.query.uploader_id as string) || undefined;
-      const status = await storage.getUploadStatus(uploaderId);
+      const status = await storage.getUploadStatus();
       res.json(status);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch upload status" });

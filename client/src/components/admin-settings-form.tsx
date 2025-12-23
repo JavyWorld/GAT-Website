@@ -58,8 +58,7 @@ export function AdminSettingsForm({ initialData, onSubmit, isLoading }: AdminSet
 
   const regenerateKeyMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/settings/generate-api-key");
-      return res.json();
+      return apiRequest<{ apiKey: string }>("POST", "/api/settings/generate-api-key");
     },
     onSuccess: (data: { apiKey: string }) => {
       setGeneratedApiKey(data.apiKey);
