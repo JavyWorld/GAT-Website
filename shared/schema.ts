@@ -256,6 +256,22 @@ export const insertGuildSettingsSchema = createInsertSchema(guildSettings).omit(
 export type GuildSettings = typeof guildSettings.$inferSelect;
 export type InsertGuildSettings = z.infer<typeof insertGuildSettingsSchema>;
 
+// Uploader keys table - manages API keys per uploader instance
+export const uploaderKeys = pgTable("uploader_keys", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  uploaderId: varchar("uploader_id", { length: 100 }).notNull(),
+  apiKey: varchar("api_key", { length: 128 }).notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uploader_keys_api_key_idx").on(table.apiKey),
+  uniqueIndex("uploader_keys_uploader_id_idx").on(table.uploaderId),
+]);
+
+export const insertUploaderKeySchema = createInsertSchema(uploaderKeys).omit({ id: true, createdAt: true });
+export type UploaderKey = typeof uploaderKeys.$inferSelect;
+export type InsertUploaderKey = z.infer<typeof insertUploaderKeySchema>;
+
 // Activity Events table (for activity feed)
 export const activityEvents = pgTable("activity_events", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
@@ -349,6 +365,7 @@ export const adminAuditLog = pgTable("admin_audit_log", {
   action: varchar("action", { length: 50 }).notNull(),
   details: text("details"),
   value: integer("value"),
+  uploaderId: varchar("uploader_id", { length: 100 }),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 

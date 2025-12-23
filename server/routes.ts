@@ -552,13 +552,16 @@ export async function registerRoutes(
         return res.status(401).json({ error: "API key required" });
       }
 
+      const uploaderKey = await storage.getActiveUploaderKeyByApiKey(apiKey);
       const settings = await storage.getGuildSettings();
-      if (!settings?.uploadApiKey || settings.uploadApiKey !== apiKey) {
+      if (!uploaderKey && (!settings?.uploadApiKey || settings.uploadApiKey !== apiKey)) {
         return res.status(403).json({ error: "Invalid API key" });
       }
 
+      const uploaderId = uploaderKey?.uploaderId || (settings?.uploadApiKey === apiKey ? "legacy" : null);
+
       const data = addonUploadSchema.parse(req.body);
-      const defaultRealm = settings.realm || "Unknown";
+      const defaultRealm = settings?.realm || "Unknown";
 
       let playersProcessed = 0;
       let snapshotsProcessed = 0;
@@ -813,6 +816,7 @@ export async function registerRoutes(
         action: "data_upload",
         details: `Mode: ${rosterMode || 'legacy'}, ${playersProcessed} players, ${removedCount} removed, ${snapshotsProcessed} snapshots, ${chatDataProcessed} chat${uploadReason ? ` (${uploadReason})` : ''}`,
         value: playersProcessed + snapshotsProcessed + chatDataProcessed,
+        uploaderId,
       });
 
       res.json({ 
@@ -845,13 +849,23 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Guild settings must be configured first" });
       }
 
+      const uploaderId = typeof req.body?.uploaderId === "string" && req.body.uploaderId.trim()
+        ? req.body.uploaderId.trim()
+        : "default_uploader";
       const newApiKey = randomBytes(32).toString("hex");
+
+      await storage.upsertUploaderKey({
+        uploaderId,
+        apiKey: newApiKey,
+        isActive: true,
+      });
+
       await storage.updateGuildSettings({
         ...settings,
         uploadApiKey: newApiKey,
       });
 
-      res.json({ apiKey: newApiKey });
+      res.json({ apiKey: newApiKey, uploaderId });
     } catch (error) {
       res.status(500).json({ error: "Failed to generate API key" });
     }
