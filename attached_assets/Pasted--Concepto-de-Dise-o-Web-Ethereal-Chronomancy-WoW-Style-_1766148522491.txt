@@ -1,0 +1,47 @@
+🎨 Concepto de Diseño Web: "Ethereal Chronomancy" (WoW Style)
+Para una web que combine la narrativa de "El Destino" con la estética de World of Warcraft, necesitamos una fusión entre la magia arcana/cósmica (como la de Algalon o los Titanes en WoW) y la rudeza medieval (pergaminos, piedra y hierro).
+
+Aquí tienes la descripción precisa del estilo visual:
+
+1. Atmósfera y Fondo (El "Background")
+La Base: Un fondo oscuro, de un azul abisal profundo (casi negro), similar al espacio o al Vacío en WoW.
+
+El Efecto "Cuerda Matriz": Sobre este fondo, sutiles filamentos de luz (hilos) se mueven lentamente, flotando como ondas de agua o energía. No son estáticos; respiran.
+
+Los hilos cambian suavemente de color según la sección de la web: Dorado (Esperanza), Rojo tenue (Conflicto), Azul Arcarno (Magia).
+
+Textura: En los bordes de la pantalla, una viñeta de piedra antigua tallada, similar a la arquitectura de Ulduar o las mazmorras clásicas, dando la sensación de que estamos mirando a través de un portal o una ventana en la "Sala de las Cadenas".
+
+2. Tipografía y Textos
+Títulos (H1, H2): Una fuente con serifa, gótica pero legible, con bordes afilados. Estilo "Friz Quadrata" (la fuente clásica de WoW) o "Cinzel".
+
+Efecto: Los títulos principales deben tener un leve resplandor (Glow) dorado o cian, simulando runas activas.
+
+Cuerpo de Texto: Una fuente tipo "pergamino" limpia, color hueso o beige claro sobre fondos oscuros semitransparentes.
+
+3. La Interfaz de Usuario (UI) - El Toque "Gamer"
+Contenedores: La información no flota en la nada. Cada bloque de texto (Capítulos, Lore, Personajes) está dentro de marcos de estilo medieval:
+
+Bordes metálicos (hierro oscuro o bronce envejecido).
+
+Esquinas decoradas con gemas opacas o remaches, al estilo de las ventanas de misiones (Quest Log) de WoW.
+
+Fondo de los contenedores: Una textura de pergamino desgastado o cristal obsidiana semitransparente (estilo interfaz de banda/raid).
+
+Botones: Deben parecer físicos. Botones de piedra con letras grabadas que se "iluminan" (efecto hover) en azul intenso o naranja fuego al pasar el mouse, acompañados de un sonido sutil de "magia" o "clic metálico".
+
+4. La Paleta de Colores (El Sistema de "Tensión")
+Basado en tu historia, la web usaría el código de colores de la Cuerda para diferenciar secciones:
+
+Sección "Nexonir" (La Legión): Tonos Acero, Azul Profundo y Plata. Transmite orden, sigilo y frialdad.
+
+Sección "El Conflicto" (Zulrena): Tonos Rojo Sangre y Sombras. Transmite la tensión y la ruptura de los hilos.
+
+Sección "Javy/El Emperador": Tonos Prismáticos. Una mezcla de colores que fluye, representando la visión total de la Matriz.
+
+5. Elemento Visual Clave: "El Mapa de Hilos"
+En el "Hero" (la parte superior de la web), en lugar de una foto estática, imagina una visualización interactiva del "Disco de Piedra" de la Sala de las Cadenas:
+
+Un círculo central girando lentamente con runas.
+
+Si el usuario pasa el mouse, los "hilos" reaccionan, se separan o se unen, permitiéndole elegir su "camino" (navegación del sitio).

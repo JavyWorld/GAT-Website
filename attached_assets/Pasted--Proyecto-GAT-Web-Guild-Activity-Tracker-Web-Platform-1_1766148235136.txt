@@ -1,0 +1,156 @@
+🏗️ Proyecto GAT-Web (Guild Activity Tracker Web Platform)
+1. Visión General de la Arquitectura
+El sistema se divide en dos componentes desacoplados:
+
+GAT-Client (Python Uploader): Un "agente ligero" que corre en la PC del usuario.
+
+GAT-Server (La Nube): Una plataforma web completa que procesa, almacena y visualiza los datos.
+
+2. El Agente Local (Python Uploader)
+Función: "Mensajero ciego". No piensa, solo envía.
+
+Input: Monitoriza el archivo GuildActivityTracker.lua en la carpeta de WoW.
+
+Logic:
+
+Detecta cambios en el archivo.
+
+Lee el contenido crudo.
+
+Lo comprime (gzip) para ahorrar ancho de banda.
+
+Acción: Envía una petición POST segura a https://tu-web.com/api/upload.
+
+Seguridad: Usa un API_KEY única generada en la web para autenticar qué guild está enviando datos.
+
+3. El Backend (Servidor & API)
+Tecnología Recomendada: Python (FastAPI o Django) o Node.js (NestJS). Dado que ya tenemos lógica en Python, recomiendo FastAPI por su velocidad y manejo asíncrono.
+
+Base de Datos (PostgreSQL)
+Ya no usamos hojas de cálculo planas. Usaremos un modelo relacional robusto:
+
+Table Guilds: Configuración de la guild, región, reino, API Keys de WarcraftLogs/Raider.IO.
+
+Table Players: ID único, Nombre, Reino, Clase, Raza, Avatar URL, is_active.
+
+Table Snapshots (Activity Logs): Timestamp, Total Online, Lista de IDs conectados (JSONB).
+
+Table ChatLogs: Historial de mensajes (relacionado con Player ID).
+
+Table MythicScores: Historial de puntuación por temporada (para ver progreso).
+
+Table RaidParses (Nuevo): Datos traídos de WarcraftLogs (DPS/HPS por boss).
+
+Servicios del Backend (Workers)
+Estos son procesos que corren en segundo plano (usando Celery o Redis Queue):
+
+Ingestion Worker: Recibe el JSON del Addon, valida la estructura y actualiza la tabla Players (marca nuevos como activos, viejos como inactivos).
+
+RaiderIO Worker: Cron Job cada 60 minutos. Recorre la tabla Players activa y actualiza sus scores, fotos y specs.
+
+WarcraftLogs Worker (Nuevo): Consulta la API de WLogs buscando el último reporte de la guild y asocia el rendimiento (Parse %) a cada jugador.
+
+Discord Bot Service: Escucha eventos (ej: "Nuevo récord de M+") y envía alertas al canal de Discord.
+
+4. El Frontend (La Página Web)
+Tecnología: React.js o Next.js + Tailwind CSS + Recharts (para gráficas). Estética: "Dark Mode" estilo Gaming/Cyberpunk (Colores de clase de WoW, fondos oscuros, neones).
+
+Mapa del Sitio (Sitemap) y Funcionalidades
+A. 🏠 Home / Dashboard (Centro de Mando)
+Resumen KPI: Tarjetas grandes con "Miembros Activos", "Online Ahora", "Score Promedio de Guild".
+
+Heatmap de Actividad: El gráfico de colores (Día vs Hora) que diseñamos, pero interactivo (al pasar el mouse ves detalles).
+
+Actividad Reciente: Un feed estilo red social: "Javier subió a 2500 IO", "La Guild mató a Sarkareth Mítico".
+
+B. ⚔️ Roster & Members (La Lista Definitiva)
+Tabla Avanzada: Lista de todos los jugadores con columnas ordenables (Rango, Clase, Score, iLvl, Parses).
+
+Filtros Potentes: "Ver solo Healers", "Ver solo > 2000 IO", "Ocultar Inactivos".
+
+Estado: Indicador visual (punto verde/gris) de si está Online en el juego (basado en el último snapshot).
+
+C. 👤 Player Profile (Perfil del Jugador)
+Al hacer clic en un nombre en el Roster, te lleva aquí.
+
+Header: Render 3D del personaje (usando la API de Blizzard o Raider.IO) y su fondo de clase.
+
+Activity Graph: Gráfica lineal de sus mensajes/actividad en el último mes.
+
+Progreso M+: Historial de sus mejores llaves y gráfica de cómo ha subido su IO semana a semana.
+
+WarcraftLogs Card: Sus mejores "Parses" (Desempeño % en Raid) mostrados con colores (Gris, Verde, Azul, Violeta, Naranja).
+
+D. 🏆 Mythic+ Leaderboard
+Ranking Competitivo: Top 10 de la guild.
+
+Best Keys: Muestra qué mazmorras tiene hechas en +20, +15, etc.
+
+Team Builder (Nuevo): Una herramienta donde seleccionas 5 jugadores y la web calcula el "Score Promedio del Grupo" y si tienen los buffs necesarios (BL, Battle Rez).
+
+E. 📊 Raid Analytics (Integración WarcraftLogs)
+Progreso de Guild: Qué bosses han muerto y en qué dificultad.
+
+Asistencia: Quiénes han venido a las raids las últimas 4 semanas (calculado cruzando snapshots del addon durante horas de raid).
+
+F. ⚙️ Admin Panel (Solo para ti)
+Gestión de Usuarios: Dar permisos a otros oficiales para ver datos sensibles.
+
+API Keys: Donde pegas tus claves de Raider.IO y WLogs.
+
+Auditoría: Log de quién subió datos y cuándo.
+
+Botón de Pánico "The Purge": Ejecutar limpieza manual de ex-miembros.
+
+5. Integraciones Nuevas (APIs Externas)
+Blizzard OAuth: Permitir que los miembros se logueen en tu web con su cuenta de Battle.net. Esto verifica que realmente son ellos.
+
+WarcraftLogs API:
+
+Traer los "Parses" (Rendimiento) para saber no solo quién habla, sino quién juega bien.
+
+Traer el iLvl (Nivel de objeto) exacto y equipamiento.
+
+Discord Webhooks:
+
+Notificación automática: "¡GAT Reporte! 25 miembros conectados. Récord del día."
+
+Notificación de Logros: "Felicidades a [Nombre] por llegar a 3000 IO."
+
+Instrucciones para la IA (Prompt Técnico)
+Si vas a pedirle esto a Replit o a un desarrollador, dale este resumen:
+
+Project Specification: Create a Full-Stack Web Application for World of Warcraft Guild Management.
+
+Stack:
+
+Backend: FastAPI (Python) with PostgreSQL and SQLAlchemy.
+
+Frontend: React (Next.js) with Tailwind CSS and Recharts.
+
+Workers: Celery + Redis for background API fetching.
+
+Core Features:
+
+API Endpoint /upload: Accepts a compressed JSON payload from a local Python uploader (parsing SavedVariables.lua). Needs API Key auth.
+
+Data Logic: Implement a "Master Roster" logic. If a player is uploaded in the Lua snapshot, upsert into DB. If a player in DB is missing from the Lua snapshot for >X days, mark as inactive.
+
+Background Jobs:
+
+RaiderIOSync: Fetch M+ scores for all active players every hour via public API. Handle UTF-8 names and Realm slugs correctly.
+
+WarcraftLogsSync: Fetch recent raid parses using WLogs API v2.
+
+UI/UX: Dark-themed dashboard displaying Connectivity Heatmaps (Day/Hour), Roster Tables with sorting/filtering, and individual Player Profiles with historical graphs.
+
+Constraint: The system must handle high concurrency of reads (public view) vs low concurrency of writes (uploader). Optimize DB queries.
+
+¿Por qué esta arquitectura es "Robusta"?
+Escalabilidad: Si mañana tu guild crece a 5,000 personas o invitas a otras guilds a usar tu web, el sistema aguanta (PostgreSQL + Redis).
+
+Seguridad: Nadie toca la base de datos directamente. Todo pasa por la API.
+
+Persistencia: Si se te rompe la PC, los datos siguen en la nube.
+
+Automatización: Tú duermes, el servidor sigue actualizando los Scores de Raider.IO y los Logs de Raid.
